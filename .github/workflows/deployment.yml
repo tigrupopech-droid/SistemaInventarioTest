@@ -1,0 +1,74 @@
+name: CD - Despliegue Blue-Green
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - develop
+
+jobs:
+  deployment:
+    name: Pruebas, Deploy y Rollback
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar codigo fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Dar permisos a scripts
+        run: chmod +x scripts/deploy-blue-green.sh scripts/rollback.sh
+
+      - name: Build del proyecto
+        run: mvn clean package
+
+      - name: Ejecutar pruebas de integracion
+        run: mvn verify
+
+      - name: Ejecutar pruebas de aceptacion
+        run: mvn -Dtest=InventarioAcceptanceTest test
+
+      - name: Preparar ambiente BLUE inicial
+        run: |
+          mkdir -p deployment/test/blue
+          mkdir -p deployment/test/green
+          echo "blue" > deployment/test/active-environment.txt
+          cp target/*.jar deployment/test/blue/
+          echo "=========================================="
+          echo "AMBIENTE INICIAL"
+          echo "Ambiente activo: $(cat deployment/test/active-environment.txt)"
+          echo "=========================================="
+
+      - name: Desplegar nueva version con Blue-Green
+        run: ./scripts/deploy-blue-green.sh
+
+      - name: Verificar despliegue
+        run: |
+          echo "=========================================="
+          echo "VERIFICACION DEL DESPLIEGUE"
+          echo "Ambiente activo: $(cat deployment/test/active-environment.txt)"
+          echo ""
+          echo "Contenido BLUE:"
+          ls -la deployment/test/blue
+          echo ""
+          echo "Contenido GREEN:"
+          ls -la deployment/test/green
+          echo "=========================================="
+
+      - name: Simular rollback
+        run: ./scripts/rollback.sh
+
+      - name: Verificar rollback
+        run: |
+          echo "=========================================="
+          echo "VERIFICACION DEL ROLLBACK"
+          echo "Ambiente activo despues del rollback:"
+          cat deployment/test/active-environment.txt
+          echo "=========================================="
